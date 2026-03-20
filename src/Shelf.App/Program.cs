@@ -112,8 +112,8 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
         var subjectName = pr.GetValue(subjectArg)!;
         var targetName = pr.GetValue(targetArg)!;
 
-        var subject = items.Get(ItemStore.Canonicalize(subjectName));
-        var target = items.Get(ItemStore.Canonicalize(targetName));
+        var subject = items.Get(subjectName);
+        var target = items.Get(targetName);
 
         if (subject is null)
         {
@@ -129,7 +129,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
         rels.Add(subject.Id, pr.GetValue(verbOpt)!, target.Id, pr.GetValue(reasonOpt));
         rels.Save();
 
-        Console.WriteLine($"{subject.Id} {pr.GetValue(verbOpt)} {target.Id}");
+        Console.WriteLine($"{subject.Name} {pr.GetValue(verbOpt)} {target.Name}");
     });
     rootCommand.Subcommands.Add(cmd);
 }
@@ -147,8 +147,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
         var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
 
         var name = pr.GetValue(idArg)!;
-        var id = ItemStore.Canonicalize(name);
-        var item = items.Get(id);
+        var item = items.Get(name);
 
         if (item is null)
         {
@@ -165,6 +164,9 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             Keywords = string.IsNullOrWhiteSpace(item.Keywords) ? null : item.Keywords,
         };
 
+        string ResolveName(string? id) =>
+            id is not null ? items.Get(id)?.Name ?? id : "";
+
         var itemRels = rels.GetBySubject(item.Id);
         if (itemRels.Count > 0)
         {
@@ -172,7 +174,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             {
                 Subject = item.Name,
                 Verb = r.Verb,
-                Target = r.TargetId,
+                Target = r.TargetId is not null ? ResolveName(r.TargetId) : null,
                 Reason = r.Reason,
                 Date = r.DateAdded,
             }).ToList();
@@ -185,7 +187,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
         {
             view.ReferencedBy = inbound.Select(r => new QueryRelationshipRow
             {
-                Subject = r.SubjectId,
+                Subject = ResolveName(r.SubjectId),
                 Verb = r.Verb,
                 Target = item.Name,
                 Reason = r.Reason,
@@ -293,19 +295,20 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
         var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
 
         var name = pr.GetValue(idArg)!;
-        var id = ItemStore.Canonicalize(name);
+        var item = items.Get(name);
 
-        if (!items.Remove(id))
+        if (item is null)
         {
             Console.Error.WriteLine($"item not found: {name}");
             return;
         }
 
-        var removed = rels.RemoveBySubject(id);
+        items.Remove(item.Id);
+        var removed = rels.RemoveBySubject(item.Id);
         items.Save();
         rels.Save();
 
-        Console.WriteLine($"removed {id} ({removed} relationship(s))");
+        Console.WriteLine($"removed {item.Name} ({removed} relationship(s))");
     });
     rootCommand.Subcommands.Add(cmd);
 }
