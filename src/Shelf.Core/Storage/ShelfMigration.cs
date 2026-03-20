@@ -12,7 +12,7 @@ public static class ShelfMigration
         MigrateFile(
             Path.Combine(dataDir, "items.md"),
             Path.Combine(dataDir, "items"),
-            sourceColumnIndex: 5); // id, name, type, domain, keywords, source, date_added
+            sourceColumnIndex: 6); // id, name, type, domain, keywords, url, source, date_added
 
         MigrateFile(
             Path.Combine(dataDir, "relationships.md"),

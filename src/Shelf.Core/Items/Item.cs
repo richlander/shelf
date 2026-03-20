@@ -9,5 +9,6 @@ public sealed record Item(
     string Type,
     string Domain,
     string Keywords,
+    string Url,
     string Source,
     string DateAdded);

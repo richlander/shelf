@@ -91,11 +91,11 @@ public sealed class ShelfItems
         return [.. _shards.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)];
     }
 
-    public Item Put(string name, string type, string domain, string? keywords = null, string? source = null)
+    public Item Put(string name, string type, string domain, string? keywords = null, string? url = null, string? source = null)
     {
         source ??= Sources.Journal;
         var store = GetOrCreateShard(source);
-        var item = store.Put(name, type, domain, keywords, source);
+        var item = store.Put(name, type, domain, keywords, url, source);
         _dirty.Add(source);
         return item;
     }
