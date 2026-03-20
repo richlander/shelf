@@ -170,11 +170,25 @@ public static class MarkdownTableStore
             trimmed = trimmed[..^1];
         }
 
-        var parts = trimmed.ToString().Split('|');
-        var cells = new string[parts.Length];
-        for (var i = 0; i < parts.Length; i++)
+        // Count cells, then parse — avoids intermediate string[] from Split
+        var cellCount = 1;
+        for (var i = 0; i < trimmed.Length; i++)
         {
-            cells[i] = parts[i].Trim();
+            if (trimmed[i] == '|')
+                cellCount++;
+        }
+
+        var cells = new string[cellCount];
+        var cellIndex = 0;
+        var remaining = trimmed;
+        while (cellIndex < cellCount)
+        {
+            var pipeIndex = remaining.IndexOf('|');
+            var cell = pipeIndex < 0 ? remaining : remaining[..pipeIndex];
+            cells[cellIndex++] = cell.Trim().ToString();
+            if (pipeIndex < 0)
+                break;
+            remaining = remaining[(pipeIndex + 1)..];
         }
 
         return cells;

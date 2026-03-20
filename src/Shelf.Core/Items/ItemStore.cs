@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Hashing;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -9,7 +10,7 @@ namespace Shelf.Core.Items;
 /// <summary>
 /// Manages items backed by a markdown table.
 /// </summary>
-public sealed class ItemStore
+public sealed partial class ItemStore
 {
     private static readonly string[] Headers = ["id", "name", "type", "domain", "keywords", "source", "date_added"];
     private readonly string _filePath;
@@ -95,11 +96,17 @@ public sealed class ItemStore
 
     private const int MaxSlugLength = 30;
 
+    [GeneratedRegex(@"[^a-zA-Z0-9\s-]")]
+    private static partial Regex NonAlphanumericRegex();
+
+    [GeneratedRegex(@"[\s-]+")]
+    private static partial Regex WhitespaceOrHyphenRegex();
+
     public static string Canonicalize(string name)
     {
         // Strip non-alphanumeric (keep spaces and hyphens), collapse whitespace, lowercase
-        var slug = Regex.Replace(name.Trim(), @"[^a-zA-Z0-9\s-]", "");
-        slug = Regex.Replace(slug, @"[\s-]+", "-").Trim('-').ToLowerInvariant();
+        var slug = NonAlphanumericRegex().Replace(name.Trim(), "");
+        slug = WhitespaceOrHyphenRegex().Replace(slug, "-").Trim('-').ToLowerInvariant();
 
         if (slug.Length <= MaxSlugLength)
             return slug;
