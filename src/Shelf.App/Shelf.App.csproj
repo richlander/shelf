@@ -12,6 +12,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
     <AssemblyName>shelf</AssemblyName>
+    <PublishAot>true</PublishAot>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>shelf</ToolCommandName>
     <VersionPrefix>0.1.0</VersionPrefix>
