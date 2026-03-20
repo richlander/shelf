@@ -1,3 +1,6 @@
+using System.IO.Hashing;
+using System.Text;
+using System.Text.RegularExpressions;
 using Shelf.Core.Storage;
 
 namespace Shelf.Core.Items;
@@ -20,7 +23,9 @@ public sealed class ItemStore
     public int Count => _items.Count;
 
     public Item? Get(string id) =>
-        _items.TryGetValue(Canonicalize(id), out var item) ? item : null;
+        _items.TryGetValue(id, out var item) ? item
+        : _items.TryGetValue(Canonicalize(id), out item) ? item
+        : null;
 
     public Item? FindByName(string name) =>
         _items.Values.FirstOrDefault(i =>
@@ -41,9 +46,12 @@ public sealed class ItemStore
         return item;
     }
 
-    public bool Remove(string id)
+    public bool Remove(string nameOrId)
     {
-        return _items.Remove(Canonicalize(id));
+        // Try exact match first (already an ID), then canonicalize (a display name)
+        if (_items.Remove(nameOrId))
+            return true;
+        return _items.Remove(Canonicalize(nameOrId));
     }
 
     /// <summary>
@@ -69,8 +77,26 @@ public sealed class ItemStore
         MarkdownTableStore.Write(_filePath, Headers, rows);
     }
 
-    public static string Canonicalize(string name) =>
-        name.Trim().ToLowerInvariant().Replace(' ', '-');
+    private const int MaxSlugLength = 30;
+
+    public static string Canonicalize(string name)
+    {
+        // Strip non-alphanumeric (keep spaces and hyphens), collapse whitespace, lowercase
+        var slug = Regex.Replace(name.Trim(), @"[^a-zA-Z0-9\s-]", "");
+        slug = Regex.Replace(slug, @"[\s-]+", "-").Trim('-').ToLowerInvariant();
+
+        if (slug.Length <= MaxSlugLength)
+            return slug;
+
+        // Truncate at word boundary, append 4-char hash for uniqueness
+        var truncated = slug[..MaxSlugLength];
+        var lastHyphen = truncated.LastIndexOf('-');
+        if (lastHyphen > MaxSlugLength / 2)
+            truncated = truncated[..lastHyphen];
+
+        var hash = XxHash64.HashToUInt64(Encoding.UTF8.GetBytes(slug));
+        return $"{truncated}-{hash & 0xFFFF:x4}";
+    }
 
     private void Load()
     {
