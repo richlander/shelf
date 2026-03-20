@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <PackageId>Shelf.Core</PackageId>
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>0.1.1</VersionPrefix>
     <Authors>Richard Lander</Authors>
     <Description>Core library for shelf — personal knowledge graph with items, relationships, and seen-state</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
