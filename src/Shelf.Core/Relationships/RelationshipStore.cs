@@ -7,7 +7,7 @@ namespace Shelf.Core.Relationships;
 /// </summary>
 public sealed class RelationshipStore
 {
-    private static readonly string[] Headers = ["subject", "verb", "target", "reason", "date_added"];
+    private static readonly string[] Headers = ["subject", "verb", "target", "reason", "source", "date_added"];
     private readonly string _filePath;
     private readonly List<Relationship> _relationships = [];
 
@@ -34,11 +34,17 @@ public sealed class RelationshipStore
             string.Equals(r.SubjectId, subjectId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(r.Verb, verb, StringComparison.OrdinalIgnoreCase)).ToList();
 
-    public Relationship Add(string subjectId, string verb, string? targetId = null, string? reason = null)
+    public Relationship Add(string subjectId, string verb, string? targetId = null, string? reason = null, string? source = null)
     {
-        var rel = new Relationship(subjectId, verb, targetId, reason, DateTime.UtcNow.ToString("yyyy-MM-dd"));
+        var rel = new Relationship(subjectId, verb, targetId, reason, source ?? Sources.Journal, DateTime.UtcNow.ToString("yyyy-MM-dd"));
         _relationships.Add(rel);
         return rel;
+    }
+
+    public int RemoveBySource(string source)
+    {
+        return _relationships.RemoveAll(r =>
+            string.Equals(r.Source, source, StringComparison.OrdinalIgnoreCase));
     }
 
     public int RemoveBySubject(string subjectId)
@@ -59,7 +65,7 @@ public sealed class RelationshipStore
         var rows = _relationships
             .OrderBy(r => r.SubjectId, StringComparer.OrdinalIgnoreCase)
             .ThenBy(r => r.Verb, StringComparer.OrdinalIgnoreCase)
-            .Select(static r => new[] { r.SubjectId, r.Verb, r.TargetId ?? "", r.Reason ?? "", r.DateAdded });
+            .Select(static r => new[] { r.SubjectId, r.Verb, r.TargetId ?? "", r.Reason ?? "", r.Source, r.DateAdded });
 
         MarkdownTableStore.Write(_filePath, Headers, rows);
     }
@@ -82,7 +88,8 @@ public sealed class RelationshipStore
                 verb,
                 row.Length > 2 && !string.IsNullOrWhiteSpace(row[2]) ? row[2] : null,
                 row.Length > 3 && !string.IsNullOrWhiteSpace(row[3]) ? row[3] : null,
-                row.Length > 4 ? row[4] : "");
+                row.Length > 4 && !string.IsNullOrWhiteSpace(row[4]) ? row[4] : Sources.Journal,
+                row.Length > 5 ? row[5] : "");
 
             _relationships.Add(rel);
         }

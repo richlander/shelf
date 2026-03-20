@@ -16,16 +16,17 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     var typeOpt = new Option<string>("--type") { Description = "Item type (artist, repo, article, topic, etc.)", DefaultValueFactory = _ => "item" };
     var domainOpt = new Option<string>("--domain") { Description = "Domain (music, hn, github, etc.)", DefaultValueFactory = _ => "general" };
     var keywordsOpt = new Option<string?>("--keywords") { Description = "Comma-separated keywords" };
+    var sourceOpt = new Option<string>("--source") { Description = "Book/source (journal, musicbrainz, etc.)", DefaultValueFactory = _ => Sources.Journal };
 
-    var cmd = new Command("put", "Add or update an item") { nameArg, typeOpt, domainOpt, keywordsOpt };
+    var cmd = new Command("put", "Add or update an item") { nameArg, typeOpt, domainOpt, keywordsOpt, sourceOpt };
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
-        var store = new ItemStore(ShelfPaths.ItemsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
 
         var name = pr.GetValue(nameArg)!;
-        var item = store.Put(name, pr.GetValue(typeOpt)!, pr.GetValue(domainOpt)!, pr.GetValue(keywordsOpt));
-        store.Save();
+        var item = items.Put(name, pr.GetValue(typeOpt)!, pr.GetValue(domainOpt)!, pr.GetValue(keywordsOpt), pr.GetValue(sourceOpt));
+        items.Save();
 
         Console.WriteLine($"put {item.Id} ({item.Type}, {item.Domain})");
     });
@@ -45,14 +46,14 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
-        var items = new ItemStore(ShelfPaths.ItemsFile);
-        var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
 
         var name = pr.GetValue(idArg)!;
         var (item, created) = items.GetOrCreate(name, pr.GetValue(typeOpt)!, pr.GetValue(domainOpt)!);
         if (created) items.Save();
 
-        // Remove any existing like/dislike for this item, then add
+        // Remove any existing like/dislike, then add to journal
         rels.RemoveBySubjectAndVerb(item.Id, Verbs.Likes);
         rels.RemoveBySubjectAndVerb(item.Id, Verbs.Dislikes);
         rels.Add(item.Id, Verbs.Likes, reason: pr.GetValue(reasonOpt));
@@ -76,8 +77,8 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
-        var items = new ItemStore(ShelfPaths.ItemsFile);
-        var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
 
         var name = pr.GetValue(idArg)!;
         var (item, created) = items.GetOrCreate(name, pr.GetValue(typeOpt)!, pr.GetValue(domainOpt)!);
@@ -101,13 +102,14 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     var targetArg = new Argument<string>("target") { Description = "Target item name or ID" };
     var verbOpt = new Option<string>("--verb") { Description = "Relationship type", DefaultValueFactory = _ => Verbs.SimilarTo };
     var reasonOpt = new Option<string?>("--reason") { Description = "Why they're related" };
+    var sourceOpt = new Option<string>("--source") { Description = "Book/source", DefaultValueFactory = _ => Sources.Journal };
 
-    var cmd = new Command("link", "Create a relationship between two items") { subjectArg, targetArg, verbOpt, reasonOpt };
+    var cmd = new Command("link", "Create a relationship between two items") { subjectArg, targetArg, verbOpt, reasonOpt, sourceOpt };
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
-        var items = new ItemStore(ShelfPaths.ItemsFile);
-        var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
 
         var subjectName = pr.GetValue(subjectArg)!;
         var targetName = pr.GetValue(targetArg)!;
@@ -126,7 +128,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             return;
         }
 
-        rels.Add(subject.Id, pr.GetValue(verbOpt)!, target.Id, pr.GetValue(reasonOpt));
+        rels.Add(subject.Id, pr.GetValue(verbOpt)!, target.Id, pr.GetValue(reasonOpt), pr.GetValue(sourceOpt));
         rels.Save();
 
         Console.WriteLine($"{subject.Name} {pr.GetValue(verbOpt)} {target.Name}");
@@ -143,8 +145,8 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     var cmd = new Command("query", "Show everything known about an item") { idArg };
     cmd.SetAction((pr) =>
     {
-        var items = new ItemStore(ShelfPaths.ItemsFile);
-        var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
 
         var name = pr.GetValue(idArg)!;
         var item = items.Get(name);
@@ -155,13 +157,22 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             return;
         }
 
+        // Merge keywords from all sources for this item
+        var allItems = items.GetAllById(item.Id);
+        var allKeywords = allItems
+            .SelectMany(i => i.Keywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var allSources = allItems.Select(i => i.Source).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
         var view = new QueryView
         {
             Title = item.Name,
             Type = item.Type,
             Domain = item.Domain,
+            Source = string.Join(", ", allSources),
             Added = item.DateAdded,
-            Keywords = string.IsNullOrWhiteSpace(item.Keywords) ? null : item.Keywords,
+            Keywords = allKeywords.Count > 0 ? string.Join(", ", allKeywords) : null,
         };
 
         string ResolveName(string? id) =>
@@ -176,6 +187,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
                 Verb = r.Verb,
                 Target = r.TargetId is not null ? ResolveName(r.TargetId) : null,
                 Reason = r.Reason,
+                Source = r.Source,
                 Date = r.DateAdded,
             }).ToList();
         }
@@ -191,6 +203,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
                 Verb = r.Verb,
                 Target = item.Name,
                 Reason = r.Reason,
+                Source = r.Source,
                 Date = r.DateAdded,
             }).ToList();
         }
@@ -210,14 +223,16 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     var cmd = new Command("opinions", "List preferences") { domainOpt, verbOpt };
     cmd.SetAction((pr) =>
     {
-        var items = new ItemStore(ShelfPaths.ItemsFile);
-        var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
 
         var domain = pr.GetValue(domainOpt);
         var verb = pr.GetValue(verbOpt);
 
         var relevantItems = domain is not null ? items.GetByDomain(domain) : items.GetAll();
-        var itemIds = relevantItems.ToDictionary(i => i.Id, StringComparer.OrdinalIgnoreCase);
+        var itemIds = new Dictionary<string, Item>(StringComparer.OrdinalIgnoreCase);
+        foreach (var i in relevantItems)
+            itemIds.TryAdd(i.Id, i);
 
         var allRels = rels.GetAll()
             .Where(r => itemIds.ContainsKey(r.SubjectId))
@@ -291,8 +306,8 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
-        var items = new ItemStore(ShelfPaths.ItemsFile);
-        var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
 
         var name = pr.GetValue(idArg)!;
         var item = items.Get(name);
@@ -314,6 +329,35 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
 }
 
 // ============================================================
+// reset — remove all data from a source (book)
+// ============================================================
+{
+    var sourceArg = new Argument<string>("source") { Description = "Book to reset (e.g. musicbrainz, listenbrainz)" };
+
+    var cmd = new Command("reset", "Remove a book from the shelf") { sourceArg };
+    cmd.SetAction((pr) =>
+    {
+        ShelfPaths.EnsureDirectories();
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
+
+        var source = pr.GetValue(sourceArg)!;
+
+        if (string.Equals(source, Sources.Journal, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine("refusing to reset journal — use pull to remove individual items");
+            return;
+        }
+
+        var itemCount = items.RemoveBySource(source);
+        var relCount = rels.RemoveBySource(source);
+
+        Console.WriteLine($"reset {source}: removed {itemCount} item(s), {relCount} relationship(s)");
+    });
+    rootCommand.Subcommands.Add(cmd);
+}
+
+// ============================================================
 // status — data directory info
 // ============================================================
 {
@@ -325,29 +369,34 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
         view.Storage =
         [
             new() { Name = "data_dir", Value = ShelfPaths.DataDir },
-            new() { Name = "items", Value = $"{ShelfPaths.ItemsFile}{(File.Exists(ShelfPaths.ItemsFile) ? "" : " (not created)")}" },
-            new() { Name = "relationships", Value = $"{ShelfPaths.RelationshipsFile}{(File.Exists(ShelfPaths.RelationshipsFile) ? "" : " (not created)")}" },
-            new() { Name = "seen", Value = $"{ShelfPaths.SeenDir}{(Directory.Exists(ShelfPaths.SeenDir) ? "" : " (not created)")}" },
+            new() { Name = "items", Value = ShelfPaths.ItemsDir },
+            new() { Name = "relationships", Value = ShelfPaths.RelationshipsDir },
+            new() { Name = "seen", Value = ShelfPaths.SeenDir },
         ];
 
         var counts = new List<StatusItemRow>();
-        if (File.Exists(ShelfPaths.ItemsFile))
+
+        if (Directory.Exists(ShelfPaths.ItemsDir))
         {
-            var items = new ItemStore(ShelfPaths.ItemsFile);
-            counts.Add(new() { Name = "items", Value = items.Count.ToString() });
+            var items = new ShelfItems(ShelfPaths.ItemsDir);
+            foreach (var (source, count) in items.GetShardCounts())
+                counts.Add(new() { Name = $"items/{source}", Value = count.ToString() });
         }
-        if (File.Exists(ShelfPaths.RelationshipsFile))
+
+        if (Directory.Exists(ShelfPaths.RelationshipsDir))
         {
-            var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
-            counts.Add(new() { Name = "relationships", Value = rels.Count.ToString() });
+            var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
+            foreach (var (source, count) in rels.GetShardCounts())
+                counts.Add(new() { Name = $"relationships/{source}", Value = count.ToString() });
         }
+
         var seen = new SeenStore(ShelfPaths.SeenDir);
         var domains = seen.ListDomains();
         foreach (var domain in domains)
         {
             var stats = seen.GetStats(domain);
             if (stats is not null)
-                counts.Add(new() { Name = $"seen ({domain})", Value = $"{stats.Value.Count} items, {stats.Value.FillRatio:P0} full, ~{stats.Value.EstimatedFPR:P2} FPR" });
+                counts.Add(new() { Name = $"seen/{domain}", Value = $"{stats.Value.Count} items, {stats.Value.FillRatio:P0} full" });
         }
 
         if (counts.Count > 0)
