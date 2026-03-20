@@ -9,9 +9,11 @@ shelf put <name> --type <type> --domain <domain>    # add/update an item
 shelf like <id> --reason "..."                       # positive preference
 shelf dislike <id> --reason "..."                    # negative preference
 shelf link <subject> <target> --verb <verb>          # relate two items
+shelf seen <value> --domain <domain>                  # mark as seen (bloom filter)
+shelf seen <value> --domain <domain> --check          # check without adding
 shelf query <id>                                     # everything about an item
 shelf opinions --domain <domain>                     # all preferences
-shelf remove <id>                                    # delete item + relationships
+shelf pull <id>                                      # remove item + relationships
 shelf status                                         # data directory info
 ```
 

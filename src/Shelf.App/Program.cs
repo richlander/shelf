@@ -3,6 +3,7 @@ using Markout;
 using Shelf.Core;
 using Shelf.Core.Items;
 using Shelf.Core.Relationships;
+using Shelf.Core.SeenSet;
 using Shelf.Core.Views;
 
 var rootCommand = new RootCommand("shelf — personal knowledge graph for preferences, relationships, and seen-state");
@@ -246,12 +247,45 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
 }
 
 // ============================================================
-// remove — delete an item and its relationships
+// seen — check/add to per-domain seen-set
+// ============================================================
+{
+    var valueArg = new Argument<string>("value") { Description = "URL, ID, or string to check" };
+    var domainOpt = new Option<string>("--domain") { Description = "Domain for the seen-set", DefaultValueFactory = _ => "general" };
+    var checkOpt = new Option<bool>("--check") { Description = "Only check, don't add" };
+
+    var cmd = new Command("seen", "Check or mark something as seen") { valueArg, domainOpt, checkOpt };
+    cmd.SetAction((pr) =>
+    {
+        ShelfPaths.EnsureDirectories();
+        var seen = new SeenStore(ShelfPaths.SeenDir);
+
+        var value = pr.GetValue(valueArg)!;
+        var domain = pr.GetValue(domainOpt)!;
+        var checkOnly = pr.GetValue(checkOpt);
+
+        if (checkOnly)
+        {
+            var isSeen = seen.Check(domain, value);
+            Console.WriteLine(isSeen ? "seen" : "not seen");
+        }
+        else
+        {
+            var wasSeen = seen.Add(domain, value);
+            seen.Save();
+            Console.WriteLine(wasSeen ? "already seen" : "marked seen");
+        }
+    });
+    rootCommand.Subcommands.Add(cmd);
+}
+
+// ============================================================
+// pull — remove an item and its relationships
 // ============================================================
 {
     var idArg = new Argument<string>("id") { Description = "Item name or ID" };
 
-    var cmd = new Command("remove", "Remove an item and all its relationships") { idArg };
+    var cmd = new Command("pull", "Remove an item and all its relationships") { idArg };
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
@@ -304,6 +338,15 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             var rels = new RelationshipStore(ShelfPaths.RelationshipsFile);
             counts.Add(new() { Name = "relationships", Value = rels.Count.ToString() });
         }
+        var seen = new SeenStore(ShelfPaths.SeenDir);
+        var domains = seen.ListDomains();
+        foreach (var domain in domains)
+        {
+            var stats = seen.GetStats(domain);
+            if (stats is not null)
+                counts.Add(new() { Name = $"seen ({domain})", Value = $"{stats.Value.Count} items, {stats.Value.FillRatio:P0} full, ~{stats.Value.EstimatedFPR:P2} FPR" });
+        }
+
         if (counts.Count > 0)
             view.Counts = counts;
 
