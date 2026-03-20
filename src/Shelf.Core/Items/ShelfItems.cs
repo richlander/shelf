@@ -83,6 +83,36 @@ public sealed class ShelfItems
     }
 
     /// <summary>
+    /// Search items by partial match against name, ID, keywords, and URL.
+    /// </summary>
+    public IReadOnlyList<Item> Find(string query, string? domain = null)
+    {
+        EnsureAllLoaded();
+        var all = domain is not null
+            ? _shards.Values.SelectMany(s => s.GetByDomain(domain))
+            : _shards.Values.SelectMany(s => s.GetAll());
+
+        // Deduplicate by ID (same entity across multiple books)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var results = new List<Item>();
+        foreach (var item in all)
+        {
+            if (!seen.Add(item.Id))
+                continue;
+
+            if (item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.Keywords.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.Url.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(item);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// List all source (book) names that have items.
     /// </summary>
     public IReadOnlyList<string> ListBooks()
@@ -91,11 +121,11 @@ public sealed class ShelfItems
         return [.. _shards.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)];
     }
 
-    public Item Put(string name, string type, string domain, string? keywords = null, string? source = null)
+    public Item Put(string name, string type, string domain, string? keywords = null, string? url = null, string? source = null)
     {
         source ??= Sources.Journal;
         var store = GetOrCreateShard(source);
-        var item = store.Put(name, type, domain, keywords, source);
+        var item = store.Put(name, type, domain, keywords, url, source);
         _dirty.Add(source);
         return item;
     }

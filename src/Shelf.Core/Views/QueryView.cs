@@ -11,6 +11,7 @@ public class QueryView
     public string Domain { get; set; } = "";
     public string Source { get; set; } = "";
     public string Added { get; set; } = "";
+    public string? Url { get; set; }
     public string? Keywords { get; set; }
 
     [MarkoutSection(Name = "Relationships")]

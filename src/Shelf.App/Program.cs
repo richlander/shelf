@@ -16,16 +16,17 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
     var typeOpt = new Option<string>("--type") { Description = "Item type (artist, repo, article, topic, etc.)", DefaultValueFactory = _ => "item" };
     var domainOpt = new Option<string>("--domain") { Description = "Domain (music, hn, github, etc.)", DefaultValueFactory = _ => "general" };
     var keywordsOpt = new Option<string?>("--keywords") { Description = "Comma-separated keywords" };
+    var urlOpt = new Option<string?>("--url") { Description = "URL for the item" };
     var sourceOpt = new Option<string>("--source") { Description = "Book/source (journal, musicbrainz, etc.)", DefaultValueFactory = _ => Sources.Journal };
 
-    var cmd = new Command("put", "Add or update an item") { nameArg, typeOpt, domainOpt, keywordsOpt, sourceOpt };
+    var cmd = new Command("put", "Add or update an item") { nameArg, typeOpt, domainOpt, keywordsOpt, urlOpt, sourceOpt };
     cmd.SetAction((pr) =>
     {
         ShelfPaths.EnsureDirectories();
         var items = new ShelfItems(ShelfPaths.ItemsDir);
 
         var name = pr.GetValue(nameArg)!;
-        var item = items.Put(name, pr.GetValue(typeOpt)!, pr.GetValue(domainOpt)!, pr.GetValue(keywordsOpt), pr.GetValue(sourceOpt));
+        var item = items.Put(name, pr.GetValue(typeOpt)!, pr.GetValue(domainOpt)!, pr.GetValue(keywordsOpt), pr.GetValue(urlOpt), pr.GetValue(sourceOpt));
         items.Save();
 
         Console.WriteLine($"put {item.Id} ({item.Type}, {item.Domain})");
@@ -165,6 +166,9 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             .ToList();
         var allSources = allItems.Select(i => i.Source).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+        // Merge URLs from all sources — take first non-empty
+        var url = allItems.Select(i => i.Url).FirstOrDefault(u => !string.IsNullOrWhiteSpace(u));
+
         var view = new QueryView
         {
             Title = item.Name,
@@ -172,6 +176,7 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
             Domain = item.Domain,
             Source = string.Join(", ", allSources),
             Added = item.DateAdded,
+            Url = url,
             Keywords = allKeywords.Count > 0 ? string.Join(", ", allKeywords) : null,
         };
 
@@ -205,6 +210,43 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
                 Reason = r.Reason,
                 Source = r.Source,
                 Date = r.DateAdded,
+            }).ToList();
+        }
+
+        MarkoutSerializer.Serialize(view, Console.Out, ShelfMarkoutContext.Default);
+    });
+    rootCommand.Subcommands.Add(cmd);
+}
+
+// ============================================================
+// find — search items by partial match
+// ============================================================
+{
+    var queryArg = new Argument<string>("query") { Description = "Search text (matches name, ID, keywords, URL)" };
+    var domainOpt = new Option<string?>("--domain") { Description = "Filter by domain" };
+
+    var cmd = new Command("find", "Search for items") { queryArg, domainOpt };
+    cmd.SetAction((pr) =>
+    {
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+
+        var query = pr.GetValue(queryArg)!;
+        var results = items.Find(query, pr.GetValue(domainOpt));
+
+        var view = new FindView
+        {
+            Title = $"find: {query}",
+        };
+
+        if (results.Count > 0)
+        {
+            view.Results = results.Select(i => new FindRow
+            {
+                Name = i.Name,
+                Type = i.Type,
+                Domain = i.Domain,
+                Keywords = string.IsNullOrWhiteSpace(i.Keywords) ? null : i.Keywords,
+                Url = string.IsNullOrWhiteSpace(i.Url) ? null : i.Url,
             }).ToList();
         }
 

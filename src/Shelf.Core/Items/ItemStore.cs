@@ -12,7 +12,7 @@ namespace Shelf.Core.Items;
 /// </summary>
 public sealed partial class ItemStore
 {
-    private static readonly string[] Headers = ["id", "name", "type", "domain", "keywords", "source", "date_added"];
+    private static readonly string[] Headers = ["id", "name", "type", "domain", "keywords", "url", "source", "date_added"];
     private readonly string _filePath;
     private readonly Dictionary<string, Item> _items = new(StringComparer.OrdinalIgnoreCase);
 
@@ -54,10 +54,10 @@ public sealed partial class ItemStore
         return toRemove.Count;
     }
 
-    public Item Put(string name, string type, string domain, string? keywords = null, string? source = null)
+    public Item Put(string name, string type, string domain, string? keywords = null, string? url = null, string? source = null)
     {
         var id = Canonicalize(name);
-        var item = new Item(id, name, type, domain, keywords ?? "", source ?? Sources.Journal, DateTime.UtcNow.ToString("yyyy-MM-dd"));
+        var item = new Item(id, name, type, domain, keywords ?? "", url ?? "", source ?? Sources.Journal, DateTime.UtcNow.ToString("yyyy-MM-dd"));
 
         _items[id] = item;
         return item;
@@ -89,7 +89,7 @@ public sealed partial class ItemStore
         var rows = _items.Values
             .OrderBy(i => i.Domain, StringComparer.OrdinalIgnoreCase)
             .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(static i => new[] { i.Id, i.Name, i.Type, i.Domain, i.Keywords, i.Source, i.DateAdded });
+            .Select(static i => new[] { i.Id, i.Name, i.Type, i.Domain, i.Keywords, i.Url, i.Source, i.DateAdded });
 
         MarkdownTableStore.Write(_filePath, Headers, rows);
     }
@@ -139,8 +139,9 @@ public sealed partial class ItemStore
                 row.Length > 2 ? row[2] : "",
                 row.Length > 3 ? row[3] : "",
                 row.Length > 4 ? row[4] : "",
-                row.Length > 5 ? row[5] : Sources.Journal,
-                row.Length > 6 ? row[6] : "");
+                row.Length > 5 ? row[5] : "",
+                row.Length > 6 ? row[6] : Sources.Journal,
+                row.Length > 7 ? row[7] : "");
 
             _items.TryAdd(id, item);
         }
