@@ -1,10 +1,11 @@
 # shelf
 
-Personal knowledge graph CLI for managing preferences, relationships, and seen-state across domains.
+Personal knowledge graph CLI for managing preferences,
+relationships, and seen-state across domains.
 
 ## Commands
 
-```
+```bash
 shelf put <name> --type <type> --domain <domain>    # add/update an item
 shelf like <id> --reason "..."                       # positive preference
 shelf dislike <id> --reason "..."                    # negative preference
@@ -32,6 +33,7 @@ likes, dislikes, similar-to, ignored, presented
 ## Storage
 
 Data lives in `~/.local/share/shelf/` (override with `SHELF_DATA_DIR`):
+
 - `items.md` — markdown table of entities
 - `relationships.md` — markdown table of directed edges
 - `seen/<domain>.bloom` — per-domain bloom filter for seen-state
