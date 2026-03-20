@@ -359,6 +359,19 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
 }
 
 // ============================================================
+// completion — generate shell completion script
+// ============================================================
+{
+    var shellArg = new Argument<string>("shell") { Description = "Shell type (bash, zsh, fish, powershell)" };
+    var cmd = new Command("completion", "Generate shell completion script") { shellArg };
+    cmd.SetAction((pr) =>
+    {
+        ShellComplete.CompletionScripts.WriteToConsole("shelf", pr.GetValue(shellArg)!);
+    });
+    rootCommand.Subcommands.Add(cmd);
+}
+
+// ============================================================
 // skill — print agent skill definition
 // ============================================================
 {
