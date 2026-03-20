@@ -219,6 +219,43 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
 }
 
 // ============================================================
+// find — search items by partial match
+// ============================================================
+{
+    var queryArg = new Argument<string>("query") { Description = "Search text (matches name, ID, keywords, URL)" };
+    var domainOpt = new Option<string?>("--domain") { Description = "Filter by domain" };
+
+    var cmd = new Command("find", "Search for items") { queryArg, domainOpt };
+    cmd.SetAction((pr) =>
+    {
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+
+        var query = pr.GetValue(queryArg)!;
+        var results = items.Find(query, pr.GetValue(domainOpt));
+
+        var view = new FindView
+        {
+            Title = $"find: {query}",
+        };
+
+        if (results.Count > 0)
+        {
+            view.Results = results.Select(i => new FindRow
+            {
+                Name = i.Name,
+                Type = i.Type,
+                Domain = i.Domain,
+                Keywords = string.IsNullOrWhiteSpace(i.Keywords) ? null : i.Keywords,
+                Url = string.IsNullOrWhiteSpace(i.Url) ? null : i.Url,
+            }).ToList();
+        }
+
+        MarkoutSerializer.Serialize(view, Console.Out, ShelfMarkoutContext.Default);
+    });
+    rootCommand.Subcommands.Add(cmd);
+}
+
+// ============================================================
 // opinions — all preferences in a domain
 // ============================================================
 {

@@ -83,6 +83,36 @@ public sealed class ShelfItems
     }
 
     /// <summary>
+    /// Search items by partial match against name, ID, keywords, and URL.
+    /// </summary>
+    public IReadOnlyList<Item> Find(string query, string? domain = null)
+    {
+        EnsureAllLoaded();
+        var all = domain is not null
+            ? _shards.Values.SelectMany(s => s.GetByDomain(domain))
+            : _shards.Values.SelectMany(s => s.GetAll());
+
+        // Deduplicate by ID (same entity across multiple books)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var results = new List<Item>();
+        foreach (var item in all)
+        {
+            if (!seen.Add(item.Id))
+                continue;
+
+            if (item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.Keywords.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.Url.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(item);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// List all source (book) names that have items.
     /// </summary>
     public IReadOnlyList<string> ListBooks()
