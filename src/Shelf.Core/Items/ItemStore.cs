@@ -1,6 +1,7 @@
 using System.IO.Hashing;
 using System.Text;
 using System.Text.RegularExpressions;
+using Shelf.Core.Relationships;
 using Shelf.Core.Storage;
 
 namespace Shelf.Core.Items;
@@ -10,7 +11,7 @@ namespace Shelf.Core.Items;
 /// </summary>
 public sealed class ItemStore
 {
-    private static readonly string[] Headers = ["id", "name", "type", "domain", "keywords", "date_added"];
+    private static readonly string[] Headers = ["id", "name", "type", "domain", "keywords", "source", "date_added"];
     private readonly string _filePath;
     private readonly Dictionary<string, Item> _items = new(StringComparer.OrdinalIgnoreCase);
 
@@ -37,10 +38,25 @@ public sealed class ItemStore
         _items.Values.Where(i =>
             string.Equals(i.Domain, domain, StringComparison.OrdinalIgnoreCase)).ToList();
 
-    public Item Put(string name, string type, string domain, string? keywords = null)
+    public IReadOnlyList<Item> GetBySource(string source) =>
+        _items.Values.Where(i =>
+            string.Equals(i.Source, source, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    public int RemoveBySource(string source)
+    {
+        var toRemove = _items.Values
+            .Where(i => string.Equals(i.Source, source, StringComparison.OrdinalIgnoreCase))
+            .Select(i => i.Id)
+            .ToList();
+        foreach (var id in toRemove)
+            _items.Remove(id);
+        return toRemove.Count;
+    }
+
+    public Item Put(string name, string type, string domain, string? keywords = null, string? source = null)
     {
         var id = Canonicalize(name);
-        var item = new Item(id, name, type, domain, keywords ?? "", DateTime.UtcNow.ToString("yyyy-MM-dd"));
+        var item = new Item(id, name, type, domain, keywords ?? "", source ?? Sources.Journal, DateTime.UtcNow.ToString("yyyy-MM-dd"));
 
         _items[id] = item;
         return item;
@@ -57,13 +73,13 @@ public sealed class ItemStore
     /// <summary>
     /// Gets or creates an item. Returns (item, wasCreated).
     /// </summary>
-    public (Item Item, bool Created) GetOrCreate(string name, string type, string domain)
+    public (Item Item, bool Created) GetOrCreate(string name, string type, string domain, string? source = null)
     {
         var id = Canonicalize(name);
         if (_items.TryGetValue(id, out var existing))
             return (existing, false);
 
-        var item = Put(name, type, domain);
+        var item = Put(name, type, domain, source: source);
         return (item, true);
     }
 
@@ -72,7 +88,7 @@ public sealed class ItemStore
         var rows = _items.Values
             .OrderBy(i => i.Domain, StringComparer.OrdinalIgnoreCase)
             .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(static i => new[] { i.Id, i.Name, i.Type, i.Domain, i.Keywords, i.DateAdded });
+            .Select(static i => new[] { i.Id, i.Name, i.Type, i.Domain, i.Keywords, i.Source, i.DateAdded });
 
         MarkdownTableStore.Write(_filePath, Headers, rows);
     }
@@ -116,7 +132,8 @@ public sealed class ItemStore
                 row.Length > 2 ? row[2] : "",
                 row.Length > 3 ? row[3] : "",
                 row.Length > 4 ? row[4] : "",
-                row.Length > 5 ? row[5] : "");
+                row.Length > 5 ? row[5] : Sources.Journal,
+                row.Length > 6 ? row[6] : "");
 
             _items.TryAdd(id, item);
         }

@@ -9,6 +9,7 @@ public class QueryView
 
     public string Type { get; set; } = "";
     public string Domain { get; set; } = "";
+    public string Source { get; set; } = "";
     public string Added { get; set; } = "";
     public string? Keywords { get; set; }
 
@@ -26,5 +27,6 @@ public record QueryRelationshipRow
     public string Verb { get; init; } = "";
     public string? Target { get; init; }
     public string? Reason { get; init; }
+    public string Source { get; init; } = "";
     public string Date { get; init; } = "";
 }
