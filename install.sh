@@ -36,7 +36,7 @@ main() {
     local _rid="$RETVAL"
     assert_nz "$_rid" "rid"
 
-    local _version="0.1.1"
+    local _version="0.2.0"
     local _url="${FEED}/v${_version}/shelf-${_rid}.tar.gz"
 
     local _dir
