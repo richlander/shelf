@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Hashing;
 using System.Numerics;
 using System.Text;
@@ -44,9 +45,24 @@ public sealed class SimHash
         return signature;
     }
 
+    private static readonly SearchValues<char> s_whitespace = SearchValues.Create(" \t\n\r");
+
     public ulong ComputeSignature(string text)
     {
-        var tokens = text.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
+        var tokens = new List<string>();
+        var span = text.AsSpan();
+        while (!span.IsEmpty)
+        {
+            var idx = span.IndexOfAny(s_whitespace);
+            if (idx < 0)
+            {
+                tokens.Add(span.ToString());
+                break;
+            }
+            if (idx > 0)
+                tokens.Add(span[..idx].ToString());
+            span = span[(idx + 1)..];
+        }
         return ComputeSignature(tokens);
     }
 
