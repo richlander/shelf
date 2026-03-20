@@ -1,0 +1,134 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'CI workflow run ID to publish from'
+        required: true
+      confirm:
+        description: 'Type "publish" to confirm release'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'publish'
+    environment: nuget
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download binaries from CI run
+        uses: actions/download-artifact@v8
+        with:
+          path: binaries
+          pattern: binary-*
+          merge-multiple: true
+          run-id: ${{ github.event.inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download packages from CI run
+        uses: actions/download-artifact@v8
+        with:
+          path: packages
+          pattern: package-*
+          merge-multiple: true
+          run-id: ${{ github.event.inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List artifacts
+        run: |
+          echo "=== Binaries ==="
+          ls -la binaries/
+          echo "=== Packages ==="
+          ls -la packages/
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: NuGet login (OIDC → temp API key)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish to NuGet.org
+        run: |
+          # 1. Publish Shelf.Core library first
+          for pkg in packages/Shelf.Core.*.nupkg; do
+            if [[ -f "$pkg" ]]; then
+              echo "Publishing library: $(basename "$pkg")"
+              dotnet nuget push "$pkg" \
+                --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
+                --source https://api.nuget.org/v3/index.json \
+                --skip-duplicate
+            fi
+          done
+
+          # 2. Publish RID-specific AOT packages
+          for pkg in packages/Shelf.win-*.nupkg packages/Shelf.linux-*.nupkg packages/Shelf.osx-*.nupkg; do
+            if [[ -f "$pkg" ]]; then
+              echo "Publishing: $(basename "$pkg")"
+              dotnet nuget push "$pkg" \
+                --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
+                --source https://api.nuget.org/v3/index.json \
+                --skip-duplicate
+            fi
+          done
+
+          # 3. Publish any (non-AOT) package
+          for pkg in packages/Shelf.any.*.nupkg; do
+            if [[ -f "$pkg" ]]; then
+              echo "Publishing any package: $(basename "$pkg")"
+              dotnet nuget push "$pkg" \
+                --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
+                --source https://api.nuget.org/v3/index.json \
+                --skip-duplicate
+            fi
+          done
+
+          # 4. Publish pointer package last (references all RID-specific packages)
+          for pkg in packages/Shelf.[0-9]*.nupkg; do
+            if [[ -f "$pkg" ]]; then
+              echo "Publishing pointer package: $(basename "$pkg")"
+              dotnet nuget push "$pkg" \
+                --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
+                --source https://api.nuget.org/v3/index.json \
+                --skip-duplicate
+            fi
+          done
+        shell: bash
+
+      - name: Publish to GitHub Packages
+        run: |
+          for pkg in packages/*.nupkg; do
+            echo "Publishing to GitHub Packages: $(basename "$pkg")"
+            dotnet nuget push "$pkg" \
+              --api-key ${{ secrets.GITHUB_TOKEN }} \
+              --source https://nuget.pkg.github.com/richlander/index.json \
+              --skip-duplicate
+          done
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep -oP '(?<=<VersionPrefix>)[^<]+' src/Shelf.App/Shelf.App.csproj)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            binaries/* \
+            packages/*.nupkg \
+            --title "shelf ${{ steps.version.outputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

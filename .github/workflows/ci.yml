@@ -1,0 +1,240 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+          else
+            BASE=${{ github.event.before }}
+          fi
+
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE"..HEAD)
+
+          code=false
+          docs=false
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              src/*|*.props|.github/workflows/*) code=true ;;
+            esac
+            case "$file" in
+              *.md|docs/*) docs=true ;;
+            esac
+          done <<< "$CHANGED"
+
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "docs=$docs" >> "$GITHUB_OUTPUT"
+
+  markdownlint:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Run markdownlint
+        run: npx markdownlint-cli2 '**/*.md'
+
+  build:
+    needs: [changes, markdownlint]
+    if: always() && needs.changes.outputs.code == 'true' && needs.markdownlint.result != 'failure'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-latest
+            rid: win-arm64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Build
+        run: dotnet build src/Shelf.App -c Release
+
+      - name: Smoke test
+        shell: bash
+        env:
+          SHELF_DATA_DIR: ${{ runner.temp }}/shelf-test
+        run: |
+          dotnet run --project src/Shelf.App -c Release -- --version
+          dotnet run --project src/Shelf.App -c Release -- --help
+          dotnet run --project src/Shelf.App -c Release -- status
+          dotnet run --project src/Shelf.App -c Release -- put "test-item" --type article --domain ci
+          dotnet run --project src/Shelf.App -c Release -- like "test-item" --reason "smoke test"
+          dotnet run --project src/Shelf.App -c Release -- seen "https://example.com/1" --domain ci
+          dotnet run --project src/Shelf.App -c Release -- query "test-item"
+          dotnet run --project src/Shelf.App -c Release -- opinions --domain ci
+          dotnet run --project src/Shelf.App -c Release -- pull "test-item"
+
+      - name: Publish NativeAOT
+        run: dotnet publish src/Shelf.App -c Release -r ${{ matrix.rid }}
+
+      - name: Package binary (tar.gz)
+        if: runner.os != 'Windows'
+        run: |
+          cd artifacts/publish/Shelf.App/release_${{ matrix.rid }}
+          tar -czf "$GITHUB_WORKSPACE/shelf-${{ matrix.rid }}.tar.gz" shelf
+
+      - name: Package binary (zip)
+        if: runner.os == 'Windows'
+        run: |
+          cd artifacts/publish/Shelf.App/release_${{ matrix.rid }}
+          Compress-Archive -Path shelf.exe -DestinationPath "$env:GITHUB_WORKSPACE/shelf-${{ matrix.rid }}.zip"
+        shell: pwsh
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.rid }}
+          path: shelf-${{ matrix.rid }}.*
+
+  pack:
+    needs: build
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Pack Shelf.Core library
+        run: dotnet pack src/Shelf.Core -c Release -p:OfficialBuild=true
+
+      - name: Upload Shelf.Core package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-core
+          path: artifacts/package/release/Shelf.Core.*.nupkg
+          if-no-files-found: error
+
+      - name: Pack pointer package
+        run: dotnet pack src/Shelf.App -c Release -p:OfficialBuild=true
+
+      - name: Upload pointer package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-pointer
+          path: artifacts/package/release/Shelf.*.nupkg
+          if-no-files-found: error
+
+      - name: Pack any (non-AOT) package
+        run: dotnet pack src/Shelf.App -c Release -r any -p:PublishAot=false -p:OfficialBuild=true
+
+      - name: Upload any package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-any
+          path: artifacts/package/release/Shelf.*.nupkg
+          if-no-files-found: error
+
+      - name: Pack linux-x64 AOT package
+        run: dotnet pack src/Shelf.App -c Release -r linux-x64 -p:OfficialAotBuild=true
+
+      - name: Upload linux-x64 package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-linux-x64
+          path: artifacts/package/release/Shelf.*.nupkg
+          if-no-files-found: error
+
+      - name: Install tool from local packages
+        run: dotnet tool install --global Shelf --add-source ./artifacts/package/release --no-cache
+
+      - name: Smoke test - installed tool
+        env:
+          SHELF_DATA_DIR: ${{ runner.temp }}/shelf-smoke
+        run: |
+          shelf --version
+          shelf status
+          shelf put "smoke-test" --type article --domain ci
+          shelf like "smoke-test" --reason "ci validation"
+          shelf query "smoke-test" | grep -q "likes"
+          shelf pull "smoke-test"
+
+      - name: Uninstall tool
+        run: dotnet tool uninstall --global Shelf
+
+  pack-rid:
+    needs: build
+    if: always() && needs.build.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: win-arm64
+            os: windows-latest
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+          - rid: osx-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Pack RID-specific package
+        run: dotnet pack src/Shelf.App -c Release -r ${{ matrix.rid }} -p:OfficialAotBuild=true
+
+      - name: Upload RID package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.rid }}
+          path: artifacts/package/release/Shelf.*.nupkg
+          if-no-files-found: error
