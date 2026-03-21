@@ -138,6 +138,42 @@ var rootCommand = new RootCommand("shelf — personal knowledge graph for prefer
 }
 
 // ============================================================
+// relate — add a freeform relationship (no target required)
+// ============================================================
+{
+    var subjectArg = new Argument<string>("subject") { Description = "Item name or ID" };
+    var verbArg = new Argument<string>("verb") { Description = "Relationship verb (seen-live, inspired-by, etc.)" };
+    var reasonOpt = new Option<string?>("--reason") { Description = "Details (date, venue, notes)" };
+    var sourceOpt = new Option<string>("--source") { Description = "Book/source", DefaultValueFactory = _ => Sources.Journal };
+
+    var cmd = new Command("relate", "Add a freeform relationship to an item") { subjectArg, verbArg, reasonOpt, sourceOpt };
+    cmd.SetAction((pr) =>
+    {
+        ShelfPaths.EnsureDirectories();
+        var items = new ShelfItems(ShelfPaths.ItemsDir);
+        var rels = new ShelfRelationships(ShelfPaths.RelationshipsDir);
+
+        var subjectName = pr.GetValue(subjectArg)!;
+        var verb = pr.GetValue(verbArg)!;
+
+        var subject = items.Get(subjectName);
+        if (subject is null)
+        {
+            Console.Error.WriteLine($"item not found: {subjectName}");
+            return;
+        }
+
+        rels.Add(subject.Id, verb, reason: pr.GetValue(reasonOpt), source: pr.GetValue(sourceOpt));
+        rels.Save();
+
+        var reason = pr.GetValue(reasonOpt);
+        var detail = reason is not null ? $" ({reason})" : "";
+        Console.WriteLine($"{subject.Name} {verb}{detail}");
+    });
+    rootCommand.Subcommands.Add(cmd);
+}
+
+// ============================================================
 // query — what do I think about X?
 // ============================================================
 {
